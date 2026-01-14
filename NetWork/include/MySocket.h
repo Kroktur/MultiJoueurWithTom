@@ -12,9 +12,11 @@ using addr_type = addrinfo;
 struct SocketData
 {
 	SocketData() = default;
-	SocketData(const SocketInfo& info, const std::string& port)
+	SocketData(const SocketInfo& info, const std::string& port,const char* ip)
 		: m_info(info)
 		, m_port(port)
+		, m_ip(ip)
+	
 	{
 	}
 	~SocketData() = default;
@@ -42,9 +44,14 @@ struct SocketData
 	{
 		return m_port;
 	}
+	const char* GetIp() const
+	{
+		return m_ip;
+	}
 private:
 	SocketInfo m_info;
 	std::string m_port;
+	const char* m_ip;
 };
 
 class SocketManager
@@ -58,7 +65,7 @@ public:
 	SocketManager& operator=(const SocketManager&) = delete;
 	SocketManager& operator=(SocketManager&&) = delete;
 
-	static bool OpenSocket(socket_type& MySocket, addr_type* info)
+	static bool OpenSocket(socket_type& MySocket, addr_type*& info)
 	{
 		// if network not initialized
 		if (!NetWork::IsInit())
@@ -106,7 +113,7 @@ public:
 	{
 		return addr != nullptr;
 	}
-	static void FreeAddr(addr_type* addr)
+	static void FreeAddr(addr_type*& addr)
 	{
 		if (IsAddrSetup(addr))
 		{
@@ -155,7 +162,7 @@ public:
 		}
 		return true;
 	}
-	static void CloseSocketAndFree(socket_type& socket, addr_type* addr)
+	static void CloseSocketAndFree(socket_type& socket, addr_type*& addr)
 	{
 		if (IsSocketValid(socket))
 		{
@@ -169,179 +176,57 @@ public:
 		}
 	}
 
-	static int Send(socket_type& socket,const char* data, int size)
-		{
-			int iResult = send(socket, data, size, 0);
-			if (iResult == SOCKET_ERROR) {
-				printf("send failed with error: %d\n", WSAGetLastError());
-				CloseSocket(socket);
-				WSACleanup();
-				throw std::runtime_error("send failed");
-			}
-			return iResult;
-		}
-	static int Recv(socket_type& socket, char* data, int size)
-		{
-			int iResult = recv(socket, data, size, 0);
-			if (iResult == SOCKET_ERROR) {
-				printf("recv failed with error: %d\n", WSAGetLastError());
-				CloseSocket(socket);
-					WSACleanup();
-				throw std::runtime_error("recv failed");
-			}
-			return iResult;
-		}
-
 };
 
 
-class Socket
+
+class FinalTcpSocket
 {
 public:
-	Socket()
-	: m_info(SocketData())
-	, m_socket(INVALID_SOCKET)
-	{}
-	Socket(socket_type socket,const SocketData& info = SocketData{})
-		: m_info(info)
-		, m_socket(socket)
-	{}
-	~Socket()
-	{
-		if (SocketManager::IsSocketValid(m_socket))
-			SocketManager::CloseSocket(m_socket);
-	}
-	Socket(const Socket&) = default;
-	Socket(Socket&&) = default;
-
-	Socket& operator=(const Socket&) = default;
-	Socket& operator=(Socket&&) = default;
-
-	const socket_type& GetSocket() const
-	{
-		return m_socket;
-	}
-	socket_type& GetSocket()
-	{
-		return m_socket;
-	}
-	void SetInfo(const SocketData& info)
-	{
-		m_info = info;
-	}
-	SocketData GetInfo() const
-	{
-		return m_info;
-	}
-private:
-	SocketData m_info;
-	socket_type m_socket;
-};
-
-
-class SocketTcp
-{
-public:
-	SocketTcp(const SocketInfo& info, const std::string& port, const char* ip )
-		: m_socket()
-		, m_addrInfo(nullptr)
+	
+	FinalTcpSocket(const SocketData& data = SocketData{})
+		: m_data(data)
+		, m_socket(std::make_unique<socket_type>(INVALID_SOCKET))
 		, m_isConnected(false)
-		,m_info(info)
-		, m_ip(ip)
-		, m_port(port)
 	{
 		if (!NetWork::IsInit())
 			throw std::runtime_error("Network not Init");
-
-		if (!info.IsValid())
-			throw std::runtime_error("SocketInfo not valid");
-
-		if (info.protocol != Protocol::TCP)
-			throw std::runtime_error("SocketInfo not TCP protocol");
-
-		SocketData socketData(m_info, m_port);
-		m_socket.SetInfo(socketData);
-
-		
-		SocketManager::SetupAddrInfo(socketData, m_ip, m_addrInfo);
-
-		if (!SocketManager::IsAddrSetup(m_addrInfo))
-			throw std::runtime_error("Address not setup");
 	}
-	SocketTcp() = default;
-	SocketTcp(const Socket& socket, bool isConnected)
-		: m_socket(socket)
-		, m_addrInfo(nullptr)
-		, m_isConnected(isConnected)
-		, m_ip(nullptr)
-		, m_port("")
-		, m_info()
-	{
-		if (!SocketManager::IsSocketValid(m_socket.GetSocket()) && m_isConnected)
-			throw std::runtime_error("Socket not valid but isConnected true");
-
-	}
-	~SocketTcp() = default;
-	SocketTcp(const SocketTcp&) = default;
-	SocketTcp(SocketTcp&&) = default;
-	SocketTcp& operator=(const SocketTcp&) = default;
-	SocketTcp& operator=(SocketTcp&&) = default;
-
-	Socket& GetSocket()
-	{
-		return m_socket;
-	}
-	const Socket& GetSocket() const
-	{
-		return m_socket;
-	}
-	addr_type* GetMyAddrInfo()
-	{
-		return m_addrInfo;
-	}
-	const addr_type* GetMyAddrInfo() const
-	{
-		return m_addrInfo;
-	}
-	void ChangeTargetIp(const char* ip)
-	{
-		if (!m_info.IsValid())
-			throw std::runtime_error("SocketInfo not valid");
-
-		if (m_info.role != Role::CLIENT)
-			throw std::runtime_error("Only client sockets can change target IP");
-
-		m_ip = ip;
-		SocketData socketData(m_info, m_port);
-		m_socket.SetInfo(socketData);
-		SocketManager::SetupAddrInfo(socketData, m_ip, m_addrInfo);
-		if (!SocketManager::IsAddrSetup(m_addrInfo))
-			throw std::runtime_error("Address not setup");
-	}
-	void SetInfo(const SocketInfo& info)
-	{
-		m_info = info;
-	}
-	void SetPort( const std::string& port)
-	{
-		m_port = port;
-	}
-
-
+	FinalTcpSocket(const socket_type& socket,bool isConected, const SocketData& data)
+		: m_data(data)
+		, m_socket(std::make_unique<socket_type>(socket))
+		, m_isConnected(isConected){}
+	FinalTcpSocket(const FinalTcpSocket&) = delete;
+	FinalTcpSocket(FinalTcpSocket&&) = default;
+	FinalTcpSocket& operator=(const FinalTcpSocket&) = delete;
+	FinalTcpSocket& operator=(FinalTcpSocket&&) = default;
+	~FinalTcpSocket() = default;
 	bool IsConnected() const
 	{
 		return m_isConnected;
 	}
-	void Disconnect()
+	socket_type& GetSocket()  
+	{
+		return *m_socket;
+	}
+	const socket_type& GetSocket() const
+	{
+		return *m_socket;
+	}
+	SocketData GetData() const
+	{
+		return m_data;
+	}
+	void Disconect()
 	{
 		if (!IsConnected())
 			return;
 
-		if (SocketManager::IsSocketValid(m_socket.GetSocket()))
+		if (SocketManager::IsSocketValid(*m_socket))
 		{
-			shutdown(m_socket.GetSocket(), SD_SEND);
-			SocketManager::CloseSocket(m_socket.GetSocket());
-			m_socket.GetSocket() = INVALID_SOCKET;
+			shutdown(*m_socket, SD_SEND);
+			SocketManager::CloseSocket(*m_socket);
+			*m_socket = INVALID_SOCKET;
 			m_isConnected = false;
 		}
 		else
@@ -349,143 +234,165 @@ public:
 			throw std::runtime_error("Socket not valid on disconnect");
 		}
 	}
-
-	bool Connect()
-	{
-		if (IsConnected())
-			return true;
-
-		if (!SocketManager::IsAddrSetup(m_addrInfo))
-			throw std::runtime_error("Address not setup on connect");
-
-		if (!m_info.IsValid())
-			throw std::runtime_error("SocketInfo not valid on connect");
-
-		if (m_info.role != Role::CLIENT)
-			throw std::runtime_error("Only client sockets can connect");
-
-		for (auto* ptr = m_addrInfo; ptr != nullptr; ptr = ptr->ai_next)
-		{
-			SocketManager::OpenSocket(m_socket.GetSocket(), ptr);
-			int iResult = connect(m_socket.GetSocket(), ptr->ai_addr, (int)ptr->ai_addrlen);
-			if (iResult != SOCKET_ERROR)
-			{
-				m_isConnected = true;
-				return true;
-			}
-			SocketManager::CloseSocket(m_socket.GetSocket());
-		}
-		return false;
-	}
-	void Bind()
-	{
-		if (IsConnected())
-			throw std::runtime_error("Socket already connected on bind");
-		
-		if (!SocketManager::IsAddrSetup(m_addrInfo))
-			throw std::runtime_error("Address not setup on connect");
-
-		if (!m_info.IsValid())
-			throw std::runtime_error("SocketInfo not valid on connect");
-
-		if (m_info.role != Role::SERVER)
-			throw std::runtime_error("Only server sockets can bind");
-
-		SocketManager::OpenSocket(m_socket.GetSocket(), m_addrInfo);
-
-
-		int iResult = bind(m_socket.GetSocket(), m_addrInfo->ai_addr, (int)m_addrInfo->ai_addrlen);
-		if (iResult == SOCKET_ERROR) {
-			printf("bind failed with error: %d\n", WSAGetLastError());
-			SocketManager::CloseSocket(m_socket.GetSocket());
-			throw std::runtime_error("bind failed");
-		}
-	}
-	void Listen()
-	{
-		if (IsConnected())
-			return;
-
-		if (!SocketManager::IsAddrSetup(m_addrInfo))
-			throw std::runtime_error("Address not setup on connect");
-
-		if (!m_info.IsValid())
-			throw std::runtime_error("SocketInfo not valid on connect");
-
-		if (m_info.role != Role::SERVER)
-			throw std::runtime_error("Only server sockets can listen");
-
-		if (!SocketManager::IsSocketValid(m_socket.GetSocket()))
-			throw std::runtime_error("Socket not valid on listen, bind first");
-
-		int iResult = listen(m_socket.GetSocket(), SOMAXCONN);
-		if (iResult == SOCKET_ERROR) {
-			printf("listen failed with error: %d\n", WSAGetLastError());
-			SocketManager::CloseSocket(m_socket.GetSocket());
-			throw std::runtime_error("listen failed");
-		}
-	}
-
-	SocketTcp Accept()
-	{
-		socket_type result;
-		result = accept(m_socket.GetSocket(), NULL, NULL);
-		if (!SocketManager::IsSocketValid(result)) {
-			printf("accept failed with error: %d\n", WSAGetLastError());
-			SocketManager::CloseSocket(m_socket.GetSocket());
-			throw std::runtime_error("accept failed");
-		}
-		return SocketTcp{ result, true };
-	}
-private:
-	Socket m_socket;
-	addr_type* m_addrInfo = nullptr;
-	bool m_isConnected;
-	const char* m_ip;
-	std::string m_port;
-	SocketInfo m_info;
-};
-
-class SocketTcp2
-{
-public:
-	SocketTcp2(const Socket& socket,bool isConnected) : m_socket(socket),m_isConnected(isConnected){}
-	int Send( const char* data, int size)
+	int Send(const char* data, int size)
 	{
 		if (!IsConnected())
 			return 0;
 
-		int iResult = send(m_socket.GetSocket(), data, size, 0);
+		int iResult = send(*m_socket, data, size, 0);
 		if (iResult == SOCKET_ERROR) {
 			printf("send failed with error: %d\n", WSAGetLastError());
-			SocketManager::CloseSocket(m_socket.GetSocket());
+			SocketManager::CloseSocket(*m_socket);
 			NetWork::UnInitialize();
 			throw std::runtime_error("send failed");
 		}
 		return iResult;
 	}
-	int Receive(char* data , int size)
+	int Receive(char* data, int size)
 	{
 		if (!IsConnected())
 			return 0;
 
-		int iResult = recv(m_socket.GetSocket(), data, size, 0);
+		int iResult = recv(*m_socket, data, size, 0);
+
+		if (iResult == 0)
+		{
+			m_isConnected = false;
+			return 0;
+		}
+		
 		if (iResult == SOCKET_ERROR) {
 			printf("recv failed with error: %d\n", WSAGetLastError());
-			SocketManager::CloseSocket(m_socket.GetSocket());
+			SocketManager::CloseSocket(*m_socket);
 			NetWork::UnInitialize();
 			throw std::runtime_error("recv failed");
 		}
-		if (iResult == 0)
-			m_isConnected = false;
+	
 
 		return iResult;
 	}
-	bool IsConnected() const
+
+	void SetSocket(socket_type& socket, bool isConected)
 	{
-		return m_isConnected;
+		m_socket = std::make_unique<socket_type>(std::move(socket));
+		m_isConnected = isConected;
+	}
+	void SetData(const SocketData& data)
+	{
+		m_data = data;
+	}
+	void EnableConnection()
+	{
+		m_isConnected = true;
+	}
+	void GenerateAddrInfo()
+	{
+		if (!m_data.GetInfo().IsValid())
+			throw std::runtime_error("SocketInfo not valid");
+		SocketManager::SetupAddrInfo(m_data, m_data.GetIp(), m_addrInfo);
+		if (!SocketManager::IsAddrSetup(m_addrInfo))
+			throw std::runtime_error("Address not setup");
+	}
+	void ClearAddrInfo()
+	{
+		if (SocketManager::IsAddrSetup(m_addrInfo))
+			SocketManager::FreeAddr(m_addrInfo);
+	}
+	addr_type*& GetMyAddrInfo()
+	{
+		if (!SocketManager::IsAddrSetup(m_addrInfo))
+			GenerateAddrInfo();
+		return m_addrInfo;
 	}
 private:
-	Socket m_socket;
-	bool m_isConnected;
+	SocketData m_data;
+	std::unique_ptr<socket_type> m_socket;
+	int m_isConnected;
+	addr_type* m_addrInfo = nullptr;
+};
+
+struct TCPClientConnector
+{
+	static bool Connect(FinalTcpSocket& socket)
+	{
+		if (socket.IsConnected())
+			return true;
+
+		const SocketInfo& info = socket.GetData().GetInfo();
+
+		if (!info.IsValid())
+			throw std::runtime_error("SocketInfo not valid on connect");
+
+		if (info.role != Role::CLIENT)
+			throw std::runtime_error("Only client sockets can connect");
+
+		for (auto* ptr = socket.GetMyAddrInfo(); ptr != nullptr; ptr = ptr->ai_next)
+		{
+			SocketManager::OpenSocket(socket.GetSocket(), ptr);
+			int iResult = connect(socket.GetSocket(), ptr->ai_addr, (int)ptr->ai_addrlen);
+			if (iResult != SOCKET_ERROR)
+			{
+				socket.EnableConnection();
+				socket.ClearAddrInfo();
+				return true;
+			}
+			SocketManager::CloseSocket(socket.GetSocket());
+		}
+		return false;
+	}
+};
+
+struct TCPServerConnector
+{
+	static void Bind(FinalTcpSocket& socket)
+	{
+		if (socket.IsConnected())
+			throw std::runtime_error("Socket already connected on bind");
+
+		const SocketInfo& info = socket.GetData().GetInfo();
+		if (!info.IsValid())
+			throw std::runtime_error("SocketInfo not valid on connect");
+
+		if (info.role != Role::SERVER)
+			throw std::runtime_error("Only server sockets can bind");
+
+		SocketManager::OpenSocket(socket.GetSocket(), socket.GetMyAddrInfo());
+		auto addr = socket.GetMyAddrInfo();
+		int iResult = bind(socket.GetSocket(), addr->ai_addr, (int)addr->ai_addrlen);
+		if (iResult == SOCKET_ERROR) {
+			printf("bind failed with error: %d\n", WSAGetLastError());
+			throw std::runtime_error("bind failed");
+		}
+	}
+	static void Listen(FinalTcpSocket& socket)
+	{
+		if (socket.IsConnected())
+			return;
+
+		const SocketInfo& info = socket.GetData().GetInfo();
+		if (!info.IsValid())
+			throw std::runtime_error("SocketInfo not valid on connect");
+
+		if (info.role != Role::SERVER)
+			throw std::runtime_error("Only server sockets can listen");
+
+		if (!SocketManager::IsSocketValid(socket.GetSocket()))
+			throw std::runtime_error("Socket not valid on listen, bind first");
+
+		int iResult = listen(socket.GetSocket(), SOMAXCONN);
+		if (iResult == SOCKET_ERROR) {
+			printf("listen failed with error: %d\n", WSAGetLastError());
+			throw std::runtime_error("listen failed");
+		}
+	}
+	static FinalTcpSocket Accept(FinalTcpSocket& socket)
+	{
+		socket_type result;
+		result = accept(socket.GetSocket(), NULL, NULL);
+		if (!SocketManager::IsSocketValid(result)) {
+			printf("accept failed with error: %d\n", WSAGetLastError());
+			throw std::runtime_error("accept failed");
+		}
+		return FinalTcpSocket{result, true,socket.GetData() };
+	}
 };

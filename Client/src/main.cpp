@@ -9,6 +9,7 @@
 #include <ws2tcpip.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string>
 
 #include "MySocket.h"
 
@@ -39,12 +40,12 @@ int main(void)
 	socketInfo.socketType = SocketType::TCP;
 	socketInfo.role = Role::CLIENT;
 
+	SocketData socketData(socketInfo, DEFAULT_PORT, "localhost");
 	// create socket and set its info
-    SocketTcp socket = SocketTcp(socketInfo,DEFAULT_PORT,"localhost");
-    
 
-    Toto toto;
-	toto.a = 42;
+    FinalTcpSocket socket(socketData);
+    std::string toto;
+	toto = "42";
 
     const char* sendbuf = "this is a test";
     char recvbuf[DEFAULT_BUFLEN];
@@ -57,24 +58,18 @@ int main(void)
         {
             while (!socket.IsConnected())
             {
-                socket.Connect();
+                TCPClientConnector::Connect(socket);
             }
         }
         else {
-            t++;
-            if (t >= 10)
-				break;
-            SocketManager::Send(socket.GetSocket().GetSocket(),reinterpret_cast<const char*>(&toto), sizeof(toto));
-            iResult =SocketManager::Recv(socket.GetSocket().GetSocket(),recvbuf, recvbuflen);
+            std::getline(std::cin, toto);
+            socket.Send(reinterpret_cast<const char*>(&toto), sizeof(toto));
+            iResult = socket.Receive(recvbuf, recvbuflen);
             if (iResult > 0)
             {
-				auto test = reinterpret_cast<Toto*>(recvbuf);
-				if (test->a == 100)
-				{
-					std::cout << "Received struct with a = 100" << std::endl;
-				}
+				auto test = reinterpret_cast<std::string*>(recvbuf);
+				std::cout << "Received string: " << *test << std::endl;
                 recvbuf[iResult] = '\0';
-                printf("Bytes received: %s\n", recvbuf);
             }
         }
     } while (iResult > 0);
@@ -83,8 +78,8 @@ int main(void)
 
     // cleanup
     if (socket.IsConnected())
-		socket.Disconnect();
-    SocketManager::CloseSocketAndFree(socket.GetSocket().GetSocket(), socket.GetMyAddrInfo());
+		socket.Disconect();
+    SocketManager::CloseSocketAndFree(socket.GetSocket(), socket.GetMyAddrInfo());
 	NetWork::UnInitialize();
 
     return 0;
