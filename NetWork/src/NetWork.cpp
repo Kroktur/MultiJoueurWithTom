@@ -1,13 +1,13 @@
 #include "NetWork.h"
 
-bool NetWork::isInit()
+bool NetWork::IsInit()
 {
 	return m_isInit;
 }
 
 bool NetWork::InitializeNetWork()
 {
-	if (isInit())
+	if (IsInit())
 	{
 		UnInitialize();
 		throw std::runtime_error("alreadyInit");
@@ -30,7 +30,7 @@ bool NetWork::InitializeNetWork()
 
 void NetWork::UnInitialize()
 {
-	if (!isInit())
+	if (!IsInit())
 		throw std::runtime_error("should be init");
 	WSACleanup();
 }

@@ -32,17 +32,16 @@ enum class Role : int
 };
 
 
-class Socket;
+class SocketHolder;
 
 struct SocketInfo
 {
-    friend Socket;
+    friend SocketHolder;
     SocketInfo();
      IpAddressType ipAdress;
      Protocol protocol;
      SocketType socketType;
      Role role;
-private:
     bool IsValid() const;
     bool ProtocolAndSocketCompatible() const;
 };

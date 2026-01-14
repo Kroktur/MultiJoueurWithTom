@@ -25,7 +25,7 @@ bool SocketInfo::ProtocolAndSocketCompatible() const
 		return socketType == SocketType::TCP;
 	case Protocol::UDP:
 		return socketType == SocketType::UDP;
-	case default :
+		default :
 		throw std::runtime_error("should be valid");
 	}
 }

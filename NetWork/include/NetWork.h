@@ -13,4 +13,4 @@ public:
 private:
 	static bool m_isInit;
 };
-bool NetWork::m_isInit = false;
+inline bool NetWork::m_isInit = false;

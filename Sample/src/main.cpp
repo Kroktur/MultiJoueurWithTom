@@ -1,4 +1,4 @@
-#include "begin_code.h"
+
 
 int main()
 {

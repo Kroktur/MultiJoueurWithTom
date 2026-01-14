@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "Socket.h"
+#include "MySocket.h"
 
 // Need to link with Ws2_32.lib
 #pragma comment (lib, "Ws2_32.lib")
@@ -27,27 +27,21 @@ struct Toto
 
 int main(void)
 {
-   
-    WSADATA wsaData;
-    int iResult;
-    // Initialize Winsock
-    iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (iResult != 0) {
-        printf("WSAStartup failed with error: %d\n", iResult);
-        return 1;
-    }
 
+	// Initialize Network
+  NetWork::InitializeNetWork();
+  int iResult = 1;
 
-    addrinfo hints;
-    ZeroMemory(&hints, sizeof(hints));
-    // for IPV4 or IPV6 addresses 
-    hints.ai_family = AF_INET;
-    // standard stream socket for TCP
-    hints.ai_socktype = SOCK_STREAM;
-    // use TCP protocol
-    hints.ai_protocol = IPPROTO_TCP;
+  // create socket info for a TCP client using IPv4
+	SocketInfo socketInfo;
+	socketInfo.ipAdress = IpAddressType::IPv4;
+	socketInfo.protocol = Protocol::TCP;
+	socketInfo.socketType = SocketType::TCP;
+	socketInfo.role = Role::CLIENT;
 
-    Socket c(hints, DEFAULT_PORT);
+	// create socket and set its info
+    SocketTcp socket = SocketTcp(socketInfo,DEFAULT_PORT,"localhost");
+    
 
     Toto toto;
 	toto.a = 42;
@@ -56,24 +50,22 @@ int main(void)
     char recvbuf[DEFAULT_BUFLEN];
     int recvbuflen = DEFAULT_BUFLEN;
 
+    
     int t = 0;
     do {
-        if (c.isConnected() == false)
+        if (!socket.IsConnected())
         {
-            c.SetupConnection("localhost");
-            bool connected = false;
-            while (!connected)
+            while (!socket.IsConnected())
             {
-                connected = c.Connect();
+                socket.Connect();
             }
-            iResult = 1;
         }
         else {
             t++;
             if (t >= 10)
 				break;
-            c.Send(reinterpret_cast<const char*>(&toto), sizeof(&toto));
-            iResult = c.Recv(recvbuf, recvbuflen);
+            SocketManager::Send(socket.GetSocket().GetSocket(),reinterpret_cast<const char*>(&toto), sizeof(toto));
+            iResult =SocketManager::Recv(socket.GetSocket().GetSocket(),recvbuf, recvbuflen);
             if (iResult > 0)
             {
 				auto test = reinterpret_cast<Toto*>(recvbuf);
@@ -90,10 +82,10 @@ int main(void)
 
 
     // cleanup
-    if (c.isConnected())
-        c.Disconnect();
-    c.CloseSocketAndFree();
-    WSACleanup();
+    if (socket.IsConnected())
+		socket.Disconnect();
+    SocketManager::CloseSocketAndFree(socket.GetSocket().GetSocket(), socket.GetMyAddrInfo());
+	NetWork::UnInitialize();
 
     return 0;
 }
