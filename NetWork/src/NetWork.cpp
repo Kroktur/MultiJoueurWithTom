@@ -1,6 +1,6 @@
 #include "NetWork.h"
 
-bool NetWork::IsInit()
+bool NetWork::isInit()
 {
 	return m_isInit;
 }
