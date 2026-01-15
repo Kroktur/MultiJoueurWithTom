@@ -178,13 +178,11 @@ public:
 
 };
 
-
-
-class FinalTcpSocket
+class TcpSocket
 {
 public:
 	
-	FinalTcpSocket(const SocketData& data = SocketData{})
+	TcpSocket(const SocketData& data = SocketData{})
 		: m_data(data)
 		, m_socket(std::make_unique<socket_type>(INVALID_SOCKET))
 		, m_isConnected(false)
@@ -192,15 +190,18 @@ public:
 		if (!NetWork::IsInit())
 			throw std::runtime_error("Network not Init");
 	}
-	FinalTcpSocket(const socket_type& socket,bool isConected, const SocketData& data)
+	TcpSocket(const socket_type& socket,bool isConected, const SocketData& data)
 		: m_data(data)
 		, m_socket(std::make_unique<socket_type>(socket))
 		, m_isConnected(isConected){}
-	FinalTcpSocket(const FinalTcpSocket&) = delete;
-	FinalTcpSocket(FinalTcpSocket&&) = default;
-	FinalTcpSocket& operator=(const FinalTcpSocket&) = delete;
-	FinalTcpSocket& operator=(FinalTcpSocket&&) = default;
-	~FinalTcpSocket() = default;
+	TcpSocket(const TcpSocket&) = delete;
+	TcpSocket(TcpSocket&&) = default;
+
+	TcpSocket& operator=(const TcpSocket&) = delete;
+	TcpSocket& operator=(TcpSocket&&) = default;
+
+	~TcpSocket() = default;
+
 	bool IsConnected() const
 	{
 		return m_isConnected;
@@ -217,6 +218,7 @@ public:
 	{
 		return m_data;
 	}
+
 	void Disconect()
 	{
 		if (!IsConnected())
@@ -240,11 +242,17 @@ public:
 			return 0;
 
 		int iResult = send(*m_socket, data, size, 0);
+
+		if (iResult == 0)
+		{
+			m_isConnected = false;
+			return 0;
+		}
+
 		if (iResult == SOCKET_ERROR) {
 			printf("send failed with error: %d\n", WSAGetLastError());
-			SocketManager::CloseSocket(*m_socket);
-			NetWork::UnInitialize();
-			throw std::runtime_error("send failed");
+			m_isConnected = false;
+			return 0;
 		}
 		return iResult;
 	}
@@ -263,15 +271,13 @@ public:
 		
 		if (iResult == SOCKET_ERROR) {
 			printf("recv failed with error: %d\n", WSAGetLastError());
-			SocketManager::CloseSocket(*m_socket);
-			NetWork::UnInitialize();
-			throw std::runtime_error("recv failed");
+			m_isConnected = false;
+			return 0;
 		}
 	
 
 		return iResult;
 	}
-
 	void SetSocket(socket_type& socket, bool isConected)
 	{
 		m_socket = std::make_unique<socket_type>(std::move(socket));
@@ -298,6 +304,7 @@ public:
 		if (SocketManager::IsAddrSetup(m_addrInfo))
 			SocketManager::FreeAddr(m_addrInfo);
 	}
+
 	addr_type*& GetMyAddrInfo()
 	{
 		if (!SocketManager::IsAddrSetup(m_addrInfo))
@@ -313,7 +320,7 @@ private:
 
 struct TCPClientConnector
 {
-	static bool Connect(FinalTcpSocket& socket)
+	static bool Connect(TcpSocket& socket)
 	{
 		if (socket.IsConnected())
 			return true;
@@ -344,7 +351,7 @@ struct TCPClientConnector
 
 struct TCPServerConnector
 {
-	static void Bind(FinalTcpSocket& socket)
+	static void Bind(TcpSocket& socket)
 	{
 		if (socket.IsConnected())
 			throw std::runtime_error("Socket already connected on bind");
@@ -364,7 +371,7 @@ struct TCPServerConnector
 			throw std::runtime_error("bind failed");
 		}
 	}
-	static void Listen(FinalTcpSocket& socket)
+	static void Listen(TcpSocket& socket)
 	{
 		if (socket.IsConnected())
 			return;
@@ -385,7 +392,7 @@ struct TCPServerConnector
 			throw std::runtime_error("listen failed");
 		}
 	}
-	static FinalTcpSocket Accept(FinalTcpSocket& socket)
+	static TcpSocket Accept(TcpSocket& socket)
 	{
 		socket_type result;
 		result = accept(socket.GetSocket(), NULL, NULL);
@@ -393,6 +400,6 @@ struct TCPServerConnector
 			printf("accept failed with error: %d\n", WSAGetLastError());
 			throw std::runtime_error("accept failed");
 		}
-		return FinalTcpSocket{result, true,socket.GetData() };
+		return TcpSocket{result, true,socket.GetData() };
 	}
 };

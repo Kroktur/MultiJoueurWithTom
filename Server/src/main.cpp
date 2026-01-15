@@ -2,15 +2,19 @@
 
 #define WIN32_LEAN_AND_MEAN
 
+#include <map>
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <stdlib.h>
 #include <stdio.h>
-
+#include <thread>
 #include "MySocket.h"
 #include "NetWork.h"
 
+#include <vector>
+#include <mutex>
+#include <queue>
 // Need to link with Ws2_32.lib
 #pragma comment (lib, "Ws2_32.lib")
 // #pragma comment (lib, "Mswsock.lib")
@@ -18,12 +22,92 @@
 #define DEFAULT_BUFLEN 512
 #define DEFAULT_PORT "27015"
 
+static std::mutex mapMutex;
+static std::mutex countMutex;
+static std::mutex queueMutex;
+
 
 struct Toto
 {
     int a;
     float b;
 };
+
+struct ClientProcess
+{
+    int id;
+    std::map<int, TcpSocket*>* map;
+};
+
+
+void ClientThread(std::stop_token st, ClientProcess& c,std::queue<std::string>& queue)
+{
+    char recvbuf[DEFAULT_BUFLEN];
+    int recvbuflen = DEFAULT_BUFLEN;
+    while (!st.stop_requested())
+    {
+        TcpSocket* copy = nullptr;
+		{
+			std::scoped_lock lock(mapMutex);
+			copy = c.map->at(c.id);
+		}
+        int r = 0;
+        if (copy)
+            r = copy->Receive(recvbuf, recvbuflen);
+        if (r == 0)
+            break;
+
+		auto ctr = reinterpret_cast<std::string*>(recvbuf);
+
+        if (*ctr == "/quit")
+	     break;  
+        {
+            std::scoped_lock lock(queueMutex);
+            queue.push(*ctr);
+		}
+
+    	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+
+    TcpSocket* my = nullptr;
+    {
+        std::scoped_lock lock(mapMutex);
+        my = c.map->at(c.id);
+        c.map->erase(c.id);
+    }
+
+    my->Disconect();
+    SocketManager::CloseSocketAndFree(my->GetSocket(), my->GetMyAddrInfo());
+	delete my;
+	std::cout << "Client thread ending for id: " << c.id << "\n";
+}
+
+
+void ListenThread(std::stop_token st, TcpSocket& socket,std::map<int,TcpSocket*>& sockets,int& idCount, std::queue<std::string>& queue)
+{
+    TCPServerConnector::Listen(socket);
+	while (!st.stop_requested())
+	{
+        TcpSocket ClientSocket = TCPServerConnector::Accept(socket);
+            int id = 0;
+            {
+                std::scoped_lock lock(countMutex);
+                id = ++idCount;
+            }
+            {
+                std::scoped_lock lock(mapMutex);
+                sockets[id] = new TcpSocket(std::move(ClientSocket));
+            }
+                ClientProcess c{id, &sockets};
+                std::jthread* t =  new std::jthread(ClientThread, std::ref(c), std::ref(queue));
+			
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+	std::cout << "Listen thread ending\n";
+}
+
+
+
 
 int main(void)
 {
@@ -44,214 +128,68 @@ int main(void)
 
     SocketData socketData(socketInfo, DEFAULT_PORT, "localhost");
     // create socket and set its info
-	FinalTcpSocket socket(socketData);
+	TcpSocket socket(socketData);
 
 	TCPServerConnector::Bind(socket);
-	TCPServerConnector::Listen(socket);
-	FinalTcpSocket ClientSocket =TCPServerConnector::Accept(socket);
+	//TCPServerConnector::Listen(socket);
+	//TcpSocket ClientSocket =TCPServerConnector::Accept(socket);
     int iSendResult;
     char recvbuf[DEFAULT_BUFLEN];
     int recvbuflen = DEFAULT_BUFLEN;
 
+    int idCount = 0;
+	std::map<int, TcpSocket*> sockets;
+	std::queue<std::string> messageQueue;
+	std::jthread j(ListenThread, std::ref(socket), std::ref(sockets), std::ref(idCount), std::ref(messageQueue));
 
-
-    // Receive until the peer shuts down the connection
-    do {
-        
-        iResult = ClientSocket.Receive( recvbuf, recvbuflen);
-        if (!ClientSocket.IsConnected())
-            break;
-        if (iResult > 0) {
-            printf("Bytes received: %d\n", iResult);
-            // Echo the buffer back to the sender
-			auto send = reinterpret_cast<std::string*>(recvbuf);
-            if (*send == std::string("/Quit"))
+    while (true)
+    {
+		{
+			std::scoped_lock lock(queueMutex);
+            while (!messageQueue.empty())
             {
-                break;
+                auto msg = messageQueue.front();
+                messageQueue.pop();
+                std::cout << "Received message: " << msg << std::endl;
 			}
+		}
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
 
-            iSendResult = ClientSocket.Send(recvbuf, iResult);
-            if (iSendResult == SOCKET_ERROR) {
-                printf("send failed with error: %d\n", WSAGetLastError());
-                break;
-            }
-            printf("Bytes sent: %d\n", iSendResult);
-        }
-        else if (iResult == 0)
-            printf("Connection closing...\n");
-    } while (iResult > 0);
+   // // Receive until the peer shuts down the connection
+   // do {
+   //     
+   //     iResult = ClientSocket.Receive( recvbuf, recvbuflen);
+   //     if (!ClientSocket.IsConnected())
+   //         break;
+   //     if (iResult > 0) {
+   //         printf("Bytes received: %d\n", iResult);
+   //         // Echo the buffer back to the sender
+			//auto send = reinterpret_cast<std::string*>(recvbuf);
+   //         if (*send == std::string("/Quit"))
+   //         {
+   //             break;
+			//}
 
-    ClientSocket.Disconect();
+   //         iSendResult = ClientSocket.Send(recvbuf, iResult);
+   //         if (iSendResult == SOCKET_ERROR) {
+   //             printf("send failed with error: %d\n", WSAGetLastError());
+   //             break;
+   //         }
+   //         printf("Bytes sent: %d\n", iSendResult);
+   //     }
+   //     else if (iResult == 0)
+   //         printf("Connection closing...\n");
+   // } while (iResult > 0);
+
+   // ClientSocket.Disconect();
 
     if (socket.IsConnected())
         socket.Disconect();
     SocketManager::CloseSocketAndFree(socket.GetSocket(), socket.GetMyAddrInfo());
-    SocketManager::CloseSocketAndFree(ClientSocket.GetSocket(), ClientSocket.GetMyAddrInfo());
+    //SocketManager::CloseSocketAndFree(ClientSocket.GetSocket(), ClientSocket.GetMyAddrInfo());
 
     NetWork::UnInitialize();
 
     return 0;
 }
-//
-//#undef UNICODE
-//
-//#define WIN32_LEAN_AND_MEAN
-//
-//#include <windows.h>
-//#include <winsock2.h>
-//#include <ws2tcpip.h>
-//#include <stdlib.h>
-//#include <stdio.h>
-//
-//// Need to link with Ws2_32.lib
-//#pragma comment (lib, "Ws2_32.lib")
-//// #pragma comment (lib, "Mswsock.lib")
-//
-//#define DEFAULT_BUFLEN 512
-//#define DEFAULT_PORT "27015"
-//
-//
-//struct Toto
-//{
-//    int a;
-//    float b;
-//};
-//
-//int main(void)
-//{
-//    // Initialize Winsock library
-//    WSADATA wsaData;
-//    // Error handling variable
-//    int iResult;
-//
-//    // Create a SOCKET for the server to listen for client connections
-//    SOCKET ListenSocket = INVALID_SOCKET;
-//    SOCKET ClientSocket = INVALID_SOCKET;
-//
-//    // Resolve the server address and port
-//    // addrinfo is a struct defined in ws2tcpip.h that holds address information
-//    // socket that we will use to listen for connections
-//    addrinfo* result = NULL;
-//    // addrinfo struct used to set up the hints for getaddrinfo()
-//    addrinfo hints;
-//
-//    int iSendResult;
-//    char recvbuf[DEFAULT_BUFLEN];
-//    int recvbuflen = DEFAULT_BUFLEN;
-//
-//    // Initialize Winsock
-//    iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
-//    if (iResult != 0) {
-//        printf("WSAStartup failed with error: %d\n", iResult);
-//        return 1;
-//    }
-//    // Set up the hints address info structure
-//    ZeroMemory(&hints, sizeof(hints));
-//    // for IPV4 or IPV6 addresses 
-//    hints.ai_family = AF_INET;
-//    // standard stream socket for TCP
-//    hints.ai_socktype = SOCK_STREAM;
-//    // use TCP protocol
-//    hints.ai_protocol = IPPROTO_TCP;
-//    // passive flag indicates the socket will be used for binding passive because it will be used to accept incoming connection requests
-//    hints.ai_flags = AI_PASSIVE;
-//
-//    // Resolve the server address and port and fill in the result pointer
-//    iResult = getaddrinfo(NULL, DEFAULT_PORT, &hints, &result);
-//    if (iResult != 0) {
-//        printf("getaddrinfo failed with error: %d\n", iResult);
-//        WSACleanup();
-//        return 1;
-//    }
-//
-//    // Create a SOCKET for the server to listen for client connections.
-//    // the socket will be compatible with the address family, socket type, and protocol specified in the result addrinfo structure
-//    ListenSocket = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-//    if (ListenSocket == INVALID_SOCKET) {
-//        printf("socket failed with error: %ld\n", WSAGetLastError());
-//        freeaddrinfo(result);
-//        WSACleanup();
-//        return 1;
-//    }
-//
-//    // Setup the TCP listening socket
-//    // because socket passed AI_PASSIVE flag, the socket will be bound to the local IP address
-//    iResult = bind(ListenSocket, result->ai_addr, (int)result->ai_addrlen);
-//    if (iResult == SOCKET_ERROR) {
-//        printf("bind failed with error: %d\n", WSAGetLastError());
-//        freeaddrinfo(result);
-//        closesocket(ListenSocket);
-//        WSACleanup();
-//        return 1;
-//    }
-//
-//    // free result addrinfo structure as it is no longer needed
-//    freeaddrinfo(result);
-//
-//    iResult = listen(ListenSocket, SOMAXCONN);
-//    if (iResult == SOCKET_ERROR) {
-//        printf("listen failed with error: %d\n", WSAGetLastError());
-//        closesocket(ListenSocket);
-//        WSACleanup();
-//        return 1;
-//    }
-//    // There is a Client trying to connect !!!!!!
-//
-//
-//    // Accept a client socket
-//    // TODO il faut faire une boucle pour accepter plusieurs clients et boucler sur le listen socket
-//    ClientSocket = accept(ListenSocket, NULL, NULL);
-//    if (ClientSocket == INVALID_SOCKET) {
-//        printf("accept failed with error: %d\n", WSAGetLastError());
-//        closesocket(ListenSocket);
-//        WSACleanup();
-//        return 1;
-//    }
-//
-//    // No longer need server socket
-//    closesocket(ListenSocket);
-//
-//    // Receive until the peer shuts down the connection
-//    do {
-//
-//        iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
-//        if (iResult > 0) {
-//            printf("Bytes received: %d\n", iResult);
-//            auto t = reinterpret_cast<Toto*>(recvbuf);
-//            t->a = 100;
-//            // Echo the buffer back to the sender
-//            iSendResult = send(ClientSocket, recvbuf, iResult, 0);
-//            if (iSendResult == SOCKET_ERROR) {
-//                printf("send failed with error: %d\n", WSAGetLastError());
-//                closesocket(ClientSocket);
-//                WSACleanup();
-//                return 1;
-//            }
-//            printf("Bytes sent: %d\n", iSendResult);
-//        }
-//        else if (iResult == 0)
-//            printf("Connection closing...\n");
-//        else {
-//            printf("recv failed with error: %d\n", WSAGetLastError());
-//            closesocket(ClientSocket);
-//            WSACleanup();
-//            return 1;
-//        }
-//
-//    } while (iResult > 0);
-//
-//    // shutdown the connection since we're done
-//    iResult = shutdown(ClientSocket, SD_SEND);
-//    if (iResult == SOCKET_ERROR) {
-//        printf("shutdown failed with error: %d\n", WSAGetLastError());
-//        closesocket(ClientSocket);
-//        WSACleanup();
-//        return 1;
-//    }
-//
-//    // cleanup
-//    closesocket(ClientSocket);
-//    WSACleanup();
-//
-//    return 0;
-//}

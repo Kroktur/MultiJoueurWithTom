@@ -43,7 +43,7 @@ int main(void)
 	SocketData socketData(socketInfo, DEFAULT_PORT, "localhost");
 	// create socket and set its info
 
-    FinalTcpSocket socket(socketData);
+    TcpSocket socket(socketData);
     std::string toto;
 	toto = "42";
 
@@ -63,14 +63,16 @@ int main(void)
         }
         else {
             std::getline(std::cin, toto);
-            socket.Send(reinterpret_cast<const char*>(&toto), sizeof(toto));
-            iResult = socket.Receive(recvbuf, recvbuflen);
+             iResult = socket.Send(reinterpret_cast<const char*>(&toto), sizeof(toto));
+            if (iResult == 0)
+                break;
+           /* iResult = socket.Receive(recvbuf, recvbuflen);
             if (iResult > 0)
             {
 				auto test = reinterpret_cast<std::string*>(recvbuf);
 				std::cout << "Received string: " << *test << std::endl;
                 recvbuf[iResult] = '\0';
-            }
+            }*/
         }
     } while (iResult > 0);
 
