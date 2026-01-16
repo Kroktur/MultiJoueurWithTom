@@ -220,13 +220,9 @@ struct ClientData
 
 bool operator==(const sockaddr_in& a, const sockaddr_in& b) 
 {
-	return a.sin_family == b.sin_family && a.sin_port == b.sin_port && a.sin_addr.S_un.S_addr == b.sin_addr.S_un.S_addr;
+	return  a.sin_addr.S_un.S_addr == b.sin_addr.S_un.S_addr;
 }
 
-bool operator==(const sockaddr& a, const sockaddr& b)
-{
-	return a.sa_data == b.sa_data && a.sa_family == b.sa_family;
-}
 
 bool operator==(const SocketAddr& lhs , const SocketAddr& rhs)
 {
@@ -278,10 +274,10 @@ int main(int argc, char** argv)
 	
 
 	UdpSocket ServerSocket(serverData);
-	UdpBind::BindUdp(ServerSocket,"50960");
+	UdpBind::BindUdp(ServerSocket,ServerSocket.GetData().GetPort().c_str());
 
 
-	auto HandlePulse = [&](SocketAddr&& addr)
+	auto HandlePulse = [&](const SocketAddr& addr)
 		{
 			std::scoped_lock lock(clientMutex);
 			auto it = std::find_if(clients.begin(), clients.end(), [&](const ClientData& c) { return c.address == addr; });
@@ -290,7 +286,7 @@ int main(int argc, char** argv)
 			else
 			{
 				std::println("New client: {}", addr.GetIp());
-				clients.push_back({ std::move(addr), 0 });
+				clients.push_back({ addr, 0 });
 			}
 		};
 
@@ -333,24 +329,6 @@ int main(int argc, char** argv)
 		int bytesReceived =  ServerSocket.ReceiveFrom(message, 256, SenderAddr);
 
 
-		{
-			std::scoped_lock lock(clientMutex);
-			if (clients.empty())
-				{
-				std::println("No clients connected...");
-				count++;
-			}
-			else
-			{
-				count = 0;
-			}
-		}
-
-		if (count > 10000000)
-			break;
-
-
-
 		if (bytesReceived > 0)
 		{
 			switch (message[0])
@@ -358,16 +336,16 @@ int main(int argc, char** argv)
 			case 'M':
 				std::println("Message: {}", std::string(message + 1, bytesReceived - 1));
 				BroadcastMessage(GetNickname(SenderAddr), std::string(message + 1, bytesReceived - 1));
-				HandlePulse(std::move(SenderAddr));
+				HandlePulse(SenderAddr);
 				break;
 
 			case 'N':
 				SetNickname(SenderAddr, std::string(message + 1, bytesReceived - 1));
-				HandlePulse(std::move(SenderAddr));
+				HandlePulse(SenderAddr);
 				break;
 
 			case 'P':
-				HandlePulse(std::move(SenderAddr));
+				HandlePulse(SenderAddr);
 				break;
 			}
 		}

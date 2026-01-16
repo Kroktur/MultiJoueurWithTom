@@ -58,22 +58,22 @@ struct SocketAddr
 			SocketAddr result;
 		    if (ipAdress == IpAddressType::IPv4)
 			{
-				std::unique_ptr<sockaddr_in> addr = std::make_unique<sockaddr_in>();
-				addr->sin_family = AF_INET;
-				addr->sin_port = htons(std::stoi(port));
-                inet_pton(AF_INET, ip, &addr->sin_addr);
+                sockaddr_in addr;
+				addr.sin_family = AF_INET;
+				addr.sin_port = htons(std::stoi(port));
+                inet_pton(AF_INET, ip, &addr.sin_addr);
 
-				result.addr = std::unique_ptr<sockaddr>(reinterpret_cast<sockaddr*>(addr.release()));
+				result.addr = *reinterpret_cast<sockaddr*>(&addr);
 				result.length = sizeof(sockaddr_in);
 			}
 			else if (ipAdress == IpAddressType::IPv6)
 			{
-	            std::unique_ptr<sockaddr_in6> addr = std::make_unique<sockaddr_in6>();
-				addr->sin6_family = AF_INET6;
-				addr->sin6_port = htons(std::stoi(port));
-                inet_pton(AF_INET6, ip, &addr->sin6_addr);
+	            sockaddr_in6 addr;
+				addr.sin6_family = AF_INET6;
+				addr.sin6_port = htons(std::stoi(port));
+                inet_pton(AF_INET6, ip, &addr.sin6_addr);
 
-				result.addr = std::unique_ptr<sockaddr>(reinterpret_cast<sockaddr*>(addr.release()));
+				result.addr =*reinterpret_cast<sockaddr*>(&addr);
 	            result.length = sizeof(sockaddr_in6);
 			}
 			else
@@ -82,33 +82,46 @@ struct SocketAddr
 			}
 			return result;
 	    }
-	SocketAddr() : addr(std::make_unique<sockaddr>()), length(0) {}
-	SocketAddr(const SocketAddr& other) = delete;
+	SocketAddr() : addr(sockaddr()), length(0) {}
+	SocketAddr(const SocketAddr& other) = default;
     SocketAddr(SocketAddr&& other) noexcept = default;
-	SocketAddr& operator=(const SocketAddr& other) = delete;
+	SocketAddr& operator=(const SocketAddr& other) = default;
 	SocketAddr& operator=(SocketAddr&& other) noexcept = default;
     bool IsValid() const 
 	{
 		return length > 0;
 	}
-    std::unique_ptr<sockaddr> addr;
+    sockaddr addr;
     int length;
-	std::string GetIp() const
+	std::string GetIp() const 
     {
-        if (addr->sa_family == AF_INET)
+        if (ip.empty())
+            GenerateIp();
+		return ip;
+    }
+    void ClearIp()
+	{
+        ip.clear();
+	}
+private:
+   mutable std::string ip;
+	void GenerateIp() const
+    {
+        if (addr.sa_family == AF_INET)
         {
-        	sockaddr_in* ipv4 = reinterpret_cast<sockaddr_in*>(addr.get());
+            const sockaddr_in* ipv4 = reinterpret_cast<const sockaddr_in*>(&addr);
             char ipStr[INET_ADDRSTRLEN];
-        	inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, sizeof(ipStr));
-			return std::string(ipStr);
+            inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, sizeof(ipStr));
+        	ip = ipStr;
         }
-         if (addr->sa_family == AF_INET6)
+        else if (addr.sa_family == AF_INET6)
         {
-         	sockaddr_in6* ipv6 = reinterpret_cast<sockaddr_in6*>(addr.get());
+            const sockaddr_in6* ipv6 = reinterpret_cast<const sockaddr_in6*>(&addr);
             char ipStr[INET6_ADDRSTRLEN];
-			 inet_ntop(AF_INET6, &(ipv6->sin6_addr), ipStr, sizeof(ipStr));
-             return std::string(ipStr);
+            inet_ntop(AF_INET6, &(ipv6->sin6_addr), ipStr, sizeof(ipStr));
+            ip = ipStr;
         }
-         throw std::runtime_error("invalid");
+        else 
+			throw std::runtime_error("invalid");
     }
 };

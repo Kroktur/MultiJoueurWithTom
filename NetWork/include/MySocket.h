@@ -455,11 +455,12 @@ public:
 	{
 		if (!sock.IsValid())
 			return -1;
-		return sendto(*m_socket, data, size, 0, sock.addr.get(), sock.length);
+		return sendto(*m_socket, data, size, 0, &sock.addr, sock.length);
 	}
 	int ReceiveFrom(char* data, int size, SocketAddr& sock)
 	{
-		return recvfrom(*m_socket, data, size, 0, sock.addr.get(), &sock.length);
+		sock.ClearIp();
+		return recvfrom(*m_socket, data, size, 0, &sock.addr, &sock.length);
 	}
 
 	socket_type& GetSocket()
