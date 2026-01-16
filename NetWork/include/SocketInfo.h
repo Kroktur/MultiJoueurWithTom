@@ -35,12 +35,8 @@ enum class Role : int
     CLIENT = 0
 };
 
-
-class SocketHolder;
-
 struct SocketInfo
 {
-    friend SocketHolder;
     SocketInfo();
      IpAddressType ipAdress;
      Protocol protocol;

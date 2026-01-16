@@ -97,14 +97,6 @@ public:
 		}
 		return true;
 	}
-	static void CloseSocket(socket_type& socket)
-	{
-		if (IsSocketValid(socket))
-		{
-			closesocket(socket);
-			socket = INVALID_SOCKET;
-		}
-	}
 	static bool IsSocketValid(const socket_type& socket)
 	{
 		return socket != INVALID_SOCKET;
@@ -161,6 +153,14 @@ public:
 		{
 			freeaddrinfo(addr);
 			addr = nullptr;
+		}
+	}
+	static void CloseSocket(socket_type& socket)
+	{
+		if (IsSocketValid(socket))
+		{
+			closesocket(socket);
+			socket = INVALID_SOCKET;
 		}
 	}
 	static void CloseSocketAndFree(socket_type& socket, addr_type*& addr)
@@ -305,7 +305,6 @@ public:
 		if (SocketManager::IsAddrSetup(m_addrInfo))
 			SocketManager::FreeAddr(m_addrInfo);
 	}
-
 	addr_type*& GetMyAddrInfo()
 	{
 		if (!SocketManager::IsAddrSetup(m_addrInfo))
