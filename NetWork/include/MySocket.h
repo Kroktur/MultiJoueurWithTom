@@ -1,4 +1,6 @@
 #pragma once
+#include <string>
+
 #include "SocketInfo.h"
 #include <WinSock2.h>
 #include <ws2tcpip.h>
@@ -8,11 +10,10 @@ using addr_type = addrinfo;
 
 
 
-
 struct SocketData
 {
 	SocketData() = default;
-	SocketData(const SocketInfo& info, const std::string& port,const char* ip)
+	SocketData(const SocketInfo& info, const std::string& port,const char* ip= nullptr)
 		: m_info(info)
 		, m_port(port)
 		, m_ip(ip)
@@ -113,15 +114,6 @@ public:
 	{
 		return addr != nullptr;
 	}
-	static void FreeAddr(addr_type*& addr)
-	{
-		if (IsAddrSetup(addr))
-		{
-			freeaddrinfo(addr);
-			addr = nullptr;
-		}
-	}
-
 	static bool SetupAddrInfo(const SocketData& info,const char* ip,addr_type*& addrResult)
 	{
 		// if network not initialized
@@ -162,6 +154,15 @@ public:
 		}
 		return true;
 	}
+
+	static void FreeAddr(addr_type*& addr)
+	{
+		if (IsAddrSetup(addr))
+		{
+			freeaddrinfo(addr);
+			addr = nullptr;
+		}
+	}
 	static void CloseSocketAndFree(socket_type& socket, addr_type*& addr)
 	{
 		if (IsSocketValid(socket))
@@ -190,9 +191,9 @@ public:
 		if (!NetWork::IsInit())
 			throw std::runtime_error("Network not Init");
 	}
-	TcpSocket(const socket_type& socket,bool isConected, const SocketData& data)
+	TcpSocket(socket_type&& socket,bool isConected, const SocketData& data)
 		: m_data(data)
-		, m_socket(std::make_unique<socket_type>(socket))
+		, m_socket(std::make_unique<socket_type>(std::move(socket)))
 		, m_isConnected(isConected){}
 	TcpSocket(const TcpSocket&) = delete;
 	TcpSocket(TcpSocket&&) = default;
@@ -278,7 +279,7 @@ public:
 
 		return iResult;
 	}
-	void SetSocket(socket_type& socket, bool isConected)
+	void SetSocket(socket_type&& socket, bool isConected)
 	{
 		m_socket = std::make_unique<socket_type>(std::move(socket));
 		m_isConnected = isConected;
@@ -333,6 +334,9 @@ struct TCPClientConnector
 		if (info.role != Role::CLIENT)
 			throw std::runtime_error("Only client sockets can connect");
 
+		if (info.protocol != Protocol::TCP)
+			throw std::runtime_error("Only TCP protocol supported for connect");
+
 		for (auto* ptr = socket.GetMyAddrInfo(); ptr != nullptr; ptr = ptr->ai_next)
 		{
 			SocketManager::OpenSocket(socket.GetSocket(), ptr);
@@ -363,6 +367,9 @@ struct TCPServerConnector
 		if (info.role != Role::SERVER)
 			throw std::runtime_error("Only server sockets can bind");
 
+		if (info.protocol != Protocol::TCP)
+		throw std::runtime_error("Only TCP protocol supported for bind");
+
 		SocketManager::OpenSocket(socket.GetSocket(), socket.GetMyAddrInfo());
 		auto addr = socket.GetMyAddrInfo();
 		int iResult = bind(socket.GetSocket(), addr->ai_addr, (int)addr->ai_addrlen);
@@ -383,6 +390,9 @@ struct TCPServerConnector
 		if (info.role != Role::SERVER)
 			throw std::runtime_error("Only server sockets can listen");
 
+		if (info.protocol != Protocol::TCP)
+			throw std::runtime_error("Only TCP protocol supported for listen");
+
 		if (!SocketManager::IsSocketValid(socket.GetSocket()))
 			throw std::runtime_error("Socket not valid on listen, bind first");
 
@@ -394,12 +404,154 @@ struct TCPServerConnector
 	}
 	static TcpSocket Accept(TcpSocket& socket)
 	{
+		const SocketInfo& info = socket.GetData().GetInfo();
+		if (!info.IsValid())
+			throw std::runtime_error("SocketInfo not valid on connect");
+
+		if (info.role != Role::SERVER)
+			throw std::runtime_error("Only server sockets can bind");
+
+		if (info.protocol != Protocol::TCP)
+			throw std::runtime_error("Only TCP protocol supported for bind");
+
+
 		socket_type result;
 		result = accept(socket.GetSocket(), NULL, NULL);
 		if (!SocketManager::IsSocketValid(result)) {
 			printf("accept failed with error: %d\n", WSAGetLastError());
 			throw std::runtime_error("accept failed");
 		}
-		return TcpSocket{result, true,socket.GetData() };
+		return TcpSocket{std::move(result), true,socket.GetData() };
+	}
+};
+
+
+
+class UdpSocket
+{
+public:
+
+	UdpSocket(const SocketData& data = SocketData{})
+		: m_data(data)
+		, m_socket(std::make_unique<socket_type>(INVALID_SOCKET))
+	{
+		if (!NetWork::IsInit())
+			throw std::runtime_error("Network not Init");
+	}
+	UdpSocket(socket_type&& socket, const SocketData& data)
+		: m_data(data)
+		, m_socket(std::make_unique<socket_type>(std::move(socket)))
+	{
+	}
+	UdpSocket(const UdpSocket&) = delete;
+	UdpSocket(UdpSocket&&) = default;
+
+	UdpSocket& operator=(const UdpSocket&) = delete;
+	UdpSocket& operator=(UdpSocket&&) = default;
+
+	~UdpSocket() = default;
+
+	int SendTo(const char* data, int size, SocketAddr& sock)
+	{
+		if (!sock.IsValid())
+			return -1;
+		return sendto(*m_socket, data, size, 0, sock.addr.get(), sock.length);
+	}
+	int ReceiveFrom(char* data, int size, SocketAddr& sock)
+	{
+		return recvfrom(*m_socket, data, size, 0, sock.addr.get(), &sock.length);
+	}
+
+	socket_type& GetSocket()
+	{
+		return *m_socket;
+	}
+	const socket_type& GetSocket() const
+	{
+		return *m_socket;
+	}
+	SocketData GetData() const
+	{
+		return m_data;
+	}
+	void SetSocket( socket_type&& socket)
+	{
+		m_socket = std::make_unique<socket_type>(std::move(socket));
+	}
+	void SetData(const SocketData& data)
+	{
+		m_data = data;
+	}
+	void GenerateAddrInfo()
+	{
+		if (!m_data.GetInfo().IsValid())
+			throw std::runtime_error("SocketInfo not valid");
+		SocketManager::SetupAddrInfo(m_data, m_data.GetIp(), m_addrInfo);
+		if (!SocketManager::IsAddrSetup(m_addrInfo))
+			throw std::runtime_error("Address not setup");
+	}
+	void ClearAddrInfo()
+	{
+		if (SocketManager::IsAddrSetup(m_addrInfo))
+			SocketManager::FreeAddr(m_addrInfo);
+	}
+
+	addr_type*& GetMyAddrInfo()
+	{
+		if (!SocketManager::IsAddrSetup(m_addrInfo))
+			GenerateAddrInfo();
+		return m_addrInfo;
+	}
+private:
+	SocketData m_data;
+	std::unique_ptr<socket_type> m_socket;
+	addr_type* m_addrInfo = nullptr;
+};
+
+struct UdpBind
+{
+	static void BindUdp(UdpSocket& msocket,const char* port = "0")
+	{
+
+		const SocketInfo& info = msocket.GetData().GetInfo();
+		if (!info.IsValid())
+			throw std::runtime_error("SocketInfo not valid on connect");
+
+		if (info.protocol != Protocol::UDP)
+			throw std::runtime_error("Only UDP sockets can bind with UdpBind");
+
+		if (info.ipAdress == IpAddressType::IPv4)
+		{
+			sockaddr_in addr;
+			addr.sin_family = AF_INET;
+			addr.sin_port = htons(std::stoi(port));
+			addr.sin_addr.s_addr = INADDR_ANY;
+			msocket.GetSocket() = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+			int iResult = bind(msocket.GetSocket(), (sockaddr*)&addr, sizeof(addr));
+			/*if (iResult == SOCKET_ERROR) {
+				printf("bind failed with error: %d\n", WSAGetLastError());
+				throw std::runtime_error("bind failed");
+			}*/
+		}
+		else if (info.ipAdress == IpAddressType::IPv6)
+		{
+			sockaddr_in6  addr;
+			addr.sin6_family = AF_INET6;
+			addr.sin6_port = htons(std::stoi(port));
+			addr.sin6_addr = in6addr_any;
+
+			msocket.GetSocket() = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
+			int iResult = bind(msocket.GetSocket(), (sockaddr*)&addr, sizeof(addr));
+			if (iResult == SOCKET_ERROR) {
+				printf("bind failed with error: %d\n", WSAGetLastError());
+				throw std::runtime_error("bind failed");
+			}
+		}
+		else
+		{
+			throw std::runtime_error("Invalid IP Address type on bind");
+		}
+
+		
 	}
 };

@@ -1,6 +1,10 @@
 #pragma once
+#include <memory>
 #include <winsock2.h>
 #include <stdexcept>
+#include <string>
+#include <ws2ipdef.h>
+#include <ws2tcpip.h>
 
 enum class IpAddressType : int
 {
@@ -44,4 +48,67 @@ struct SocketInfo
      Role role;
     bool IsValid() const;
     bool ProtocolAndSocketCompatible() const;
+};
+
+
+struct SocketAddr
+{
+	static SocketAddr Create(IpAddressType ipAdress,const std::string& port, const char* ip)
+	    {
+			SocketAddr result;
+		    if (ipAdress == IpAddressType::IPv4)
+			{
+				std::unique_ptr<sockaddr_in> addr = std::make_unique<sockaddr_in>();
+				addr->sin_family = AF_INET;
+				addr->sin_port = htons(std::stoi(port));
+                inet_pton(AF_INET, ip, &addr->sin_addr);
+
+				result.addr = std::unique_ptr<sockaddr>(reinterpret_cast<sockaddr*>(addr.release()));
+				result.length = sizeof(sockaddr_in);
+			}
+			else if (ipAdress == IpAddressType::IPv6)
+			{
+	            std::unique_ptr<sockaddr_in6> addr = std::make_unique<sockaddr_in6>();
+				addr->sin6_family = AF_INET6;
+				addr->sin6_port = htons(std::stoi(port));
+                inet_pton(AF_INET6, ip, &addr->sin6_addr);
+
+				result.addr = std::unique_ptr<sockaddr>(reinterpret_cast<sockaddr*>(addr.release()));
+	            result.length = sizeof(sockaddr_in6);
+			}
+			else
+			{
+				throw std::runtime_error("Invalid IP Address type on bind");
+			}
+			return result;
+	    }
+	SocketAddr() : addr(std::make_unique<sockaddr>()), length(0) {}
+	SocketAddr(const SocketAddr& other) = delete;
+    SocketAddr(SocketAddr&& other) noexcept = default;
+	SocketAddr& operator=(const SocketAddr& other) = delete;
+	SocketAddr& operator=(SocketAddr&& other) noexcept = default;
+    bool IsValid() const 
+	{
+		return length > 0;
+	}
+    std::unique_ptr<sockaddr> addr;
+    int length;
+	std::string GetIp() const
+    {
+        if (addr->sa_family == AF_INET)
+        {
+        	sockaddr_in* ipv4 = reinterpret_cast<sockaddr_in*>(addr.get());
+            char ipStr[INET_ADDRSTRLEN];
+        	inet_ntop(AF_INET, &(ipv4->sin_addr), ipStr, sizeof(ipStr));
+			return std::string(ipStr);
+        }
+         if (addr->sa_family == AF_INET6)
+        {
+         	sockaddr_in6* ipv6 = reinterpret_cast<sockaddr_in6*>(addr.get());
+            char ipStr[INET6_ADDRSTRLEN];
+			 inet_ntop(AF_INET6, &(ipv6->sin6_addr), ipStr, sizeof(ipStr));
+             return std::string(ipStr);
+        }
+         throw std::runtime_error("invalid");
+    }
 };
